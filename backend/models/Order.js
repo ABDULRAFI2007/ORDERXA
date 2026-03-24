@@ -23,6 +23,10 @@ const orderSchema = new mongoose.Schema({
     },
     vendorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' },
     deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryPartner' },
+    deliveryLocation: {
+        lat: { type: Number },
+        lng: { type: Number },
+    },
     upiTransactionId: { type: String },
 }, { timestamps: true });
 

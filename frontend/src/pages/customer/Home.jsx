@@ -19,9 +19,14 @@ export default function CustomerHome() {
     const { user } = useAuth()
     const [vendors, setVendors] = useState([])
     const [loadingVendors, setLoadingVendors] = useState(true)
+    const [activeOrders, setActiveOrders] = useState([])
 
     useEffect(() => {
         api.get('/api/products/vendors/list').then(r => setVendors(r.data)).catch(() => { }).finally(() => setLoadingVendors(false))
+        api.get('/api/orders/my').then(r => {
+            const active = r.data.filter(o => !['Delivered', 'Rejected'].includes(o.orderStatus))
+            setActiveOrders(active)
+        }).catch(() => { })
     }, [])
 
     return (
@@ -51,6 +56,31 @@ export default function CustomerHome() {
             </div>
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+                {/* Active Orders Banner */}
+                {activeOrders.length > 0 && (
+                    <div className="mb-12 animate-fade-in">
+                        <h2 className="section-title">Active Orders</h2>
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            {activeOrders.map(order => (
+                                <div key={order._id} className="card border-2 border-brand-500/20 bg-brand-50 hover:border-brand-500/50 transition-all">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div>
+                                            <p className="font-bold text-gray-900">{order.vendorId?.shopName || 'Multiple Shops'}</p>
+                                            <p className="text-xs text-gray-500 mt-0.5">#{order._id.slice(-8).toUpperCase()}</p>
+                                        </div>
+                                        <span className="px-2 py-1 bg-brand-100 text-brand-700 text-xs font-bold rounded-lg border border-brand-200">
+                                            {order.orderStatus}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-gray-600 mb-4">{order.items.length} items • ₹{order.totalPrice}</p>
+                                    <Link to={`/customer/orders/${order._id}/track`} className="btn-primary w-full text-sm py-2 text-center block">
+                                        📍 Track Order Live
+                                    </Link>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 {/* Categories */}
                 <div className="mb-12">
                     <h2 className="section-title">Browse by Category</h2>

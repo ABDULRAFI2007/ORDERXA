@@ -61,7 +61,7 @@ export default function OrderHistory() {
                                     <span className="text-xs text-gray-500 flex items-center gap-1">
                                         {order.paymentMethod === 'COD' ? '💵 Cash on Delivery' : '📱 UPI'}
                                     </span>
-                                    {['Accepted', 'Preparing', 'Ready', 'Picked Up', 'Out for Delivery'].includes(order.orderStatus) && (
+                                    {!['Delivered', 'Rejected'].includes(order.orderStatus) && (
                                         <Link to={`/customer/orders/${order._id}/track`} className="text-brand-500 hover:text-brand-600 text-sm font-medium flex items-center gap-1">
                                             📍 Track Order →
                                         </Link>

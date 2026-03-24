@@ -7,10 +7,14 @@ import api from '../../api/axios'
 export default function Login() {
     const [roleTab, setRoleTab] = useState('customer')
     const [loginTab, setLoginTab] = useState('email')
+    const [identifierTab, setIdentifierTab] = useState('email') // 'email' | 'phone' for vendor/delivery
     const [form, setForm] = useState({ email: '', password: '', phone: '', otp: '' })
     const [otpSent, setOtpSent] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
+    // Delivery Aadhaar OTP two-step
+    const [deliveryStep, setDeliveryStep] = useState('credentials') // 'credentials' | 'otp'
+    const [deliveryOtpData, setDeliveryOtpData] = useState(null) // { partnerId, maskedPhone }
     const { login } = useAuth()
     const navigate = useNavigate()
 
@@ -31,13 +35,52 @@ export default function Login() {
         e.preventDefault(); setError(''); setLoading(true)
         try {
             let res
-            if (roleTab === 'vendor') res = await api.post('/api/vendor/login', { phone: form.phone, password: form.password })
-            else if (roleTab === 'delivery') res = await api.post('/api/delivery/login', { phone: form.phone, password: form.password })
-            else res = await api.post('/api/auth/login', { email: form.email, password: form.password })
-            const user = res.data.user || res.data.vendor || res.data.partner
-            login(res.data.token, { ...user, role: roleTab === 'admin' ? 'admin' : roleTab })
-            navigate(roleRoutes[user.role] || roleRoutes[roleTab])
+            if (roleTab === 'vendor') {
+                const payload = { password: form.password }
+                if (identifierTab === 'email') payload.email = form.email; else payload.phone = form.phone
+                res = await api.post('/api/vendor/login', payload)
+                const user = res.data.vendor
+                login(res.data.token, { ...user, role: 'vendor' })
+                navigate('/vendor')
+            } else if (roleTab === 'delivery') {
+                const payload = { password: form.password }
+                if (identifierTab === 'email') payload.email = form.email; else payload.phone = form.phone
+                res = await api.post('/api/delivery/login', payload)
+                // Two-step: server returns step:'otp' instead of token
+                if (res.data.step === 'otp') {
+                    setDeliveryOtpData({ partnerId: res.data.partnerId, maskedPhone: res.data.maskedPhone })
+                    setDeliveryStep('otp')
+                    set('otp', '')
+                }
+            } else {
+                res = await api.post('/api/auth/login', { email: form.email, password: form.password })
+                const user = res.data.user
+                login(res.data.token, { ...user, role: roleTab === 'admin' ? 'admin' : roleTab })
+                navigate(roleRoutes[user.role] || roleRoutes[roleTab])
+            }
         } catch (e) { setError(e.response?.data?.message || 'Login failed') }
+        setLoading(false)
+    }
+
+    const handleDeliveryOTPVerify = async (e) => {
+        e.preventDefault(); setError(''); setLoading(true)
+        try {
+            const res = await api.post('/api/delivery/verify-login-otp', { partnerId: deliveryOtpData.partnerId, otp: form.otp })
+            const user = res.data.partner
+            login(res.data.token, { ...user, role: 'delivery' })
+            navigate('/delivery')
+        } catch (e) { setError(e.response?.data?.message || 'OTP verification failed') }
+        setLoading(false)
+    }
+
+    const handleResendDeliveryOTP = async () => {
+        setError(''); setLoading(true)
+        try {
+            // Re-trigger login to resend OTP (reuse credentials from form)
+            const payload = { password: form.password }
+            if (identifierTab === 'email') payload.email = form.email; else payload.phone = form.phone
+            await api.post('/api/delivery/login', payload)
+        } catch (e) { setError(e.response?.data?.message || 'Failed to resend OTP') }
         setLoading(false)
     }
 
@@ -81,7 +124,7 @@ export default function Login() {
                     {/* Role Tabs */}
                     <div className="flex bg-gray-100 rounded-xl p-1 mb-6 gap-1">
                         {roleTabs.map(r => (
-                            <button key={r.id} onClick={() => { setRoleTab(r.id); setLoginTab(r.id === 'customer' ? 'email' : 'phone'); setError('') }}
+                            <button key={r.id} onClick={() => { setRoleTab(r.id); setLoginTab(r.id === 'customer' ? 'email' : 'pw'); setIdentifierTab('email'); setDeliveryStep('credentials'); setDeliveryOtpData(null); setError('') }}
                                 className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 ${roleTab === r.id ? 'bg-brand-500 text-white shadow-md' : 'text-gray-500 hover:text-gray-800'}`}>
                                 <span>{r.icon}</span> <span className="hidden sm:inline">{r.label}</span>
                             </button>
@@ -100,13 +143,29 @@ export default function Login() {
                         </div>
                     )}
 
+                    {/* Email / Phone identifier sub-tabs for vendor & delivery (hidden during OTP step) */}
+                    {(roleTab === 'vendor' || (roleTab === 'delivery' && deliveryStep === 'credentials')) && (
+                        <div className="flex border border-gray-200 rounded-xl overflow-hidden mb-6">
+                            {['email', 'phone'].map(tab => (
+                                <button key={tab} onClick={() => { setIdentifierTab(tab); setError('') }}
+                                    className={`flex-1 py-2 text-sm font-medium transition-colors ${identifierTab === tab ? 'bg-brand-500/10 text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    {tab === 'email' ? '📧 Email' : '📱 Phone'}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
                     {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-red-600 text-sm">{error}</div>}
 
-                    {/* Email/Password form */}
-                    {(loginTab === 'email' || roleTab === 'vendor' || roleTab === 'delivery') && (
+                    {/* Email/Password form — hidden when delivery is in OTP step */}
+                    {(loginTab === 'email' || roleTab === 'vendor' || (roleTab === 'delivery' && deliveryStep === 'credentials')) && (
                         <form onSubmit={handleEmailLogin} className="space-y-4">
                             {(roleTab === 'vendor' || roleTab === 'delivery') ? (
-                                <div><label className="label">📱 Mobile Number</label><input className="input-field" type="tel" placeholder="Enter mobile number" value={form.phone} onChange={e => set('phone', e.target.value)} required /></div>
+                                identifierTab === 'email' ? (
+                                    <div><label className="label">📧 Email Address</label><input className="input-field" type="email" placeholder="your@email.com" value={form.email} onChange={e => set('email', e.target.value)} required /></div>
+                                ) : (
+                                    <div><label className="label">📱 Mobile Number</label><input className="input-field" type="tel" placeholder="Enter mobile number" value={form.phone} onChange={e => set('phone', e.target.value)} required /></div>
+                                )
                             ) : (
                                 <div><label className="label">📧 Email Address</label><input className="input-field" type="email" placeholder="your@email.com" value={form.email} onChange={e => set('email', e.target.value)} required /></div>
                             )}
@@ -114,6 +173,30 @@ export default function Login() {
                             <button type="submit" disabled={loading} className="btn-primary w-full">
                                 {loading ? 'Signing in...' : `Sign in as ${roleTab === 'vendor' ? 'Shop Owner' : roleTab === 'delivery' ? 'Delivery Partner' : 'Customer'}`}
                             </button>
+                        </form>
+                    )}
+
+                    {/* Aadhaar OTP verification step — delivery only */}
+                    {roleTab === 'delivery' && deliveryStep === 'otp' && deliveryOtpData && (
+                        <form onSubmit={handleDeliveryOTPVerify} className="space-y-4">
+                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
+                                <p className="text-2xl mb-1">🪪</p>
+                                <p className="text-sm font-semibold text-blue-800">Aadhaar Verification</p>
+                                <p className="text-xs text-blue-600 mt-1">OTP sent to your Aadhaar-linked number</p>
+                                <p className="text-sm font-bold text-blue-900 mt-1 tracking-widest">{deliveryOtpData.maskedPhone}</p>
+                            </div>
+                            <div>
+                                <label className="label">🔢 Enter OTP</label>
+                                <input className="input-field tracking-widest text-center text-xl font-bold" type="text" placeholder="• • • • • •" maxLength={6} value={form.otp} onChange={e => set('otp', e.target.value)} required />
+                                <p className="text-xs text-gray-400 mt-1">Check the backend console for OTP in dev mode</p>
+                            </div>
+                            <button type="submit" disabled={loading} className="btn-primary w-full">
+                                {loading ? 'Verifying...' : 'Verify & Login'}
+                            </button>
+                            <div className="flex items-center justify-between text-sm">
+                                <button type="button" onClick={() => { setDeliveryStep('credentials'); setDeliveryOtpData(null); setError('') }} className="text-gray-500 hover:text-gray-700">← Back</button>
+                                <button type="button" onClick={handleResendDeliveryOTP} disabled={loading} className="text-brand-500 hover:text-brand-600 font-medium">Resend OTP</button>
+                            </div>
                         </form>
                     )}
 

@@ -9,15 +9,18 @@ export default function VendorOrders() {
     const [orders, setOrders] = useState([])
     const [loading, setLoading] = useState(true)
     const [filter, setFilter] = useState('All')
+    const [updatingId, setUpdatingId] = useState(null)
 
     const load = () => api.get('/api/vendor/orders').then(r => setOrders(r.data)).catch(() => { }).finally(() => setLoading(false))
     useEffect(() => { load() }, [])
 
     const updateStatus = async (id, status) => {
+        setUpdatingId(id)
         try {
             await api.put(`/api/vendor/orders/${id}/status`, { orderStatus: status })
-            load()
+            await load()
         } catch (e) { alert(e.response?.data?.message || 'Failed to update status') }
+        setUpdatingId(null)
     }
 
     const FILTERS = ['All', 'Placed', 'Accepted', 'Preparing', 'Ready', 'Rejected']
@@ -68,18 +71,18 @@ export default function VendorOrders() {
 
                                 {order.orderStatus === 'Placed' && (
                                     <div className="flex gap-3 border-t border-gray-100 pt-3">
-                                        <button onClick={() => updateStatus(order._id, 'Accepted')} className="btn-primary flex-1 text-sm py-2">✅ Accept</button>
-                                        <button onClick={() => updateStatus(order._id, 'Rejected')} className="flex-1 py-2 rounded-xl bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 text-sm font-semibold transition-colors">❌ Reject</button>
+                                        <button onClick={() => updateStatus(order._id, 'Accepted')} disabled={updatingId === order._id} className="btn-primary flex-1 text-sm py-2">{updatingId === order._id ? 'Updating...' : '✅ Accept'}</button>
+                                        <button onClick={() => updateStatus(order._id, 'Rejected')} disabled={updatingId === order._id} className="flex-1 py-2 rounded-xl bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 text-sm font-semibold transition-colors">❌ Reject</button>
                                     </div>
                                 )}
                                 {order.orderStatus === 'Accepted' && (
                                     <div className="border-t border-gray-100 pt-3 flex gap-2">
-                                        <button onClick={() => updateStatus(order._id, 'Preparing')} className="btn-primary text-sm py-2 px-4">🍳 Mark Preparing</button>
+                                        <button onClick={() => updateStatus(order._id, 'Preparing')} disabled={updatingId === order._id} className="btn-primary text-sm py-2 px-4">{updatingId === order._id ? 'Updating...' : '🍳 Mark Preparing'}</button>
                                     </div>
                                 )}
                                 {order.orderStatus === 'Preparing' && (
                                     <div className="border-t border-gray-100 pt-3">
-                                        <button onClick={() => updateStatus(order._id, 'Ready')} className="btn-primary text-sm py-2 px-4">✅ Mark Ready</button>
+                                        <button onClick={() => updateStatus(order._id, 'Ready')} disabled={updatingId === order._id} className="btn-primary text-sm py-2 px-4">{updatingId === order._id ? 'Updating...' : '✅ Mark Ready'}</button>
                                     </div>
                                 )}
                             </div>

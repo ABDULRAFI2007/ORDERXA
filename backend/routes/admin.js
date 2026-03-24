@@ -12,20 +12,26 @@ router.use(auth, requireRole('admin'));
 
 // GET /api/admin/users
 router.get('/users', async (req, res) => {
-    const users = await User.find({ role: 'customer' }).select('-passwordHash').sort({ createdAt: -1 });
-    res.json(users);
+    try {
+        const users = await User.find({ role: 'customer' }).select('-passwordHash').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
 // GET /api/admin/vendors
 router.get('/vendors', async (req, res) => {
-    const vendors = await Vendor.find().select('-passwordHash').sort({ createdAt: -1 });
-    res.json(vendors);
+    try {
+        const vendors = await Vendor.find().select('-passwordHash').sort({ createdAt: -1 });
+        res.json(vendors);
+    } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
 // GET /api/admin/partners
 router.get('/partners', async (req, res) => {
-    const partners = await DeliveryPartner.find().select('-passwordHash').sort({ createdAt: -1 });
-    res.json(partners);
+    try {
+        const partners = await DeliveryPartner.find().select('-passwordHash').sort({ createdAt: -1 });
+        res.json(partners);
+    } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
 // PUT /api/admin/partners/:id/verify
@@ -55,12 +61,14 @@ router.put('/accounts/:type/:id/deactivate', async (req, res) => {
 
 // GET /api/admin/orders
 router.get('/orders', async (req, res) => {
-    const orders = await Order.find()
-        .populate('userId', 'name phone')
-        .populate('vendorId', 'shopName')
-        .populate('deliveryPartnerId', 'fullName')
-        .sort({ createdAt: -1 });
-    res.json(orders);
+    try {
+        const orders = await Order.find()
+            .populate('userId', 'name phone')
+            .populate('vendorId', 'shopName')
+            .populate('deliveryPartnerId', 'fullName')
+            .sort({ createdAt: -1 });
+        res.json(orders);
+    } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
 // GET /api/admin/analytics

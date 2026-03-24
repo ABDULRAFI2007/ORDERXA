@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
 import StatusBadge from '../../components/StatusBadge'
+import LiveMap from '../../components/LiveMap'
 import api from '../../api/axios'
 
 const STATUS_OPTIONS = ['Picked Up', 'Out for Delivery', 'Delivered']
@@ -12,10 +13,61 @@ export default function DeliveryOrderDetail() {
     const [order, setOrder] = useState(null)
     const [loading, setLoading] = useState(true)
     const [updating, setUpdating] = useState(false)
+    const [locationSharing, setLocationSharing] = useState(false)
+    const [myLocation, setMyLocation] = useState(null)
+    const watchIdRef = useRef(null)
+    const locationIntervalRef = useRef(null)
 
     useEffect(() => {
         api.get(`/api/orders/${id}`).then(r => setOrder(r.data)).catch(() => { }).finally(() => setLoading(false))
     }, [id])
+
+    // Auto-location sharing
+    useEffect(() => {
+        if (!order || order.orderStatus === 'Delivered') return
+
+        const startLocationSharing = () => {
+            if (!navigator.geolocation) {
+                console.warn('Geolocation not supported')
+                return
+            }
+
+            setLocationSharing(true)
+
+            // Watch position for real-time updates
+            watchIdRef.current = navigator.geolocation.watchPosition(
+                (pos) => {
+                    const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+                    setMyLocation(loc)
+                },
+                (err) => console.warn('Geolocation error:', err.message),
+                { enableHighAccuracy: true, maximumAge: 10000 }
+            )
+
+            // Send location to server every 30 seconds
+            const sendLocation = () => {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+                        setMyLocation(loc)
+                        api.put('/api/delivery/location', loc).catch(() => { })
+                    },
+                    () => { },
+                    { enableHighAccuracy: true }
+                )
+            }
+            sendLocation() // Send immediately
+            locationIntervalRef.current = setInterval(sendLocation, 30000)
+        }
+
+        startLocationSharing()
+
+        return () => {
+            if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
+            if (locationIntervalRef.current) clearInterval(locationIntervalRef.current)
+            setLocationSharing(false)
+        }
+    }, [order?.orderStatus])
 
     const updateStatus = async (status) => {
         setUpdating(true)
@@ -23,7 +75,12 @@ export default function DeliveryOrderDetail() {
             await api.put(`/api/delivery/orders/${id}/status`, { orderStatus: status })
             const r = await api.get(`/api/orders/${id}`)
             setOrder(r.data)
-            if (status === 'Delivered') navigate('/delivery')
+            if (status === 'Delivered') {
+                // Stop location sharing on delivery
+                if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
+                if (locationIntervalRef.current) clearInterval(locationIntervalRef.current)
+                navigate('/delivery')
+            }
         } catch (e) { alert(e.response?.data?.message || 'Failed to update status') }
         setUpdating(false)
     }
@@ -35,6 +92,16 @@ export default function DeliveryOrderDetail() {
 
     if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
     if (!order) return <div className="min-h-screen bg-gray-50"><Navbar /><div className="flex items-center justify-center h-96 text-gray-400"><p>Order not found</p></div></div>
+
+    // Build map markers
+    const mapMarkers = []
+    const vendorLoc = order.vendorId?.location
+    if (vendorLoc?.lat && vendorLoc?.lng) {
+        mapMarkers.push({ lat: vendorLoc.lat, lng: vendorLoc.lng, label: order.vendorId?.shopName || 'Pickup', type: 'vendor' })
+    }
+    if (myLocation?.lat && myLocation?.lng) {
+        mapMarkers.push({ lat: myLocation.lat, lng: myLocation.lng, label: 'You', type: 'delivery' })
+    }
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -48,6 +115,28 @@ export default function DeliveryOrderDetail() {
                 <div className="flex items-center gap-3 mb-6">
                     <StatusBadge status={order.orderStatus} />
                     <span className="text-gray-500 text-sm">₹{order.totalPrice} • {order.paymentMethod}</span>
+                    {locationSharing && (
+                        <span className="flex items-center gap-1.5 text-xs text-green-600 font-medium bg-green-50 px-2.5 py-1 rounded-full ml-auto">
+                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                            Location Sharing
+                        </span>
+                    )}
+                </div>
+
+                {/* Embedded Map */}
+                <div className="card mb-4">
+                    <h3 className="font-bold text-gray-900 mb-3">🗺️ Route Map</h3>
+                    <LiveMap markers={mapMarkers} className="h-56 rounded-xl overflow-hidden" zoom={mapMarkers.length > 1 ? 13 : 15} />
+                    {mapMarkers.length > 0 && (
+                        <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-500">
+                            {mapMarkers.map((m, i) => (
+                                <span key={i} className="flex items-center gap-1">
+                                    <span className={`w-3 h-3 rounded-full ${m.type === 'vendor' ? 'bg-amber-400' : m.type === 'delivery' ? 'bg-blue-500' : 'bg-green-500'}`} />
+                                    {m.label}
+                                </span>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Pickup location */}

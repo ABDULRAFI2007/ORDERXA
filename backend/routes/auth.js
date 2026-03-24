@@ -11,9 +11,10 @@ const signToken = (id, role) =>
 // POST /api/auth/send-otp
 router.post('/send-otp', async (req, res) => {
     try {
-        const { phone } = req.body;
-        if (!phone) return res.status(400).json({ message: 'Phone number required' });
-        const otp = generateOTP(phone);
+        const { phone, email } = req.body;
+        const identifier = email || phone;
+        if (!identifier) return res.status(400).json({ message: 'Email or Phone required' });
+        const otp = await generateOTP(identifier);
         // In dev mode return OTP in response for testing
         const devOtp = process.env.NODE_ENV === 'development' ? otp : undefined;
         res.json({ message: 'OTP sent successfully', otp: devOtp });
@@ -25,17 +26,21 @@ router.post('/send-otp', async (req, res) => {
 // POST /api/auth/verify-otp  (login via OTP)
 router.post('/verify-otp', async (req, res) => {
     try {
-        const { phone, otp } = req.body;
-        const result = verifyOTP(phone, otp);
+        const { phone, otp, email } = req.body;
+        const identifier = email || phone;
+        const result = verifyOTP(identifier, otp);
         if (!result.valid) return res.status(400).json({ message: result.message });
 
-        let user = await User.findOne({ phone });
+        let user = await User.findOne(email ? { email } : { phone });
         if (!user) {
-            // Create account with phone only
-            user = await User.create({ name: 'Customer', phone, role: 'customer' });
+            // Create account with phone or email
+            const newUser = { name: 'Customer', role: 'customer' };
+            if (email) newUser.email = email;
+            if (phone) newUser.phone = phone;
+            user = await User.create(newUser);
         }
         const token = signToken(user._id, user.role);
-        res.json({ token, user: { id: user._id, name: user.name, phone: user.phone, role: user.role } });
+        res.json({ token, user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role } });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -45,11 +50,12 @@ router.post('/verify-otp', async (req, res) => {
 router.post('/register', async (req, res) => {
     try {
         const { name, phone, otp, email, password, district, address } = req.body;
-        if (!name || !phone || !otp || !email || !password) {
-            return res.status(400).json({ message: 'All fields are required' });
+        if (!name || (!phone && !email) || !otp || !password) {
+            return res.status(400).json({ message: 'Missing required fields' });
         }
 
-        const result = verifyOTP(phone, otp);
+        const identifier = email || phone;
+        const result = verifyOTP(identifier, otp);
         if (!result.valid) return res.status(400).json({ message: result.message });
 
         const existing = await User.findOne({ $or: [{ email }, { phone }] });

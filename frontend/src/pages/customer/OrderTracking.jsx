@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
 import StatusBadge from '../../components/StatusBadge'
+import LiveMap from '../../components/LiveMap'
 import api from '../../api/axios'
 
 const STATUS_STEPS = ['Placed', 'Accepted', 'Preparing', 'Ready', 'Picked Up', 'Out for Delivery', 'Delivered']
@@ -9,15 +10,28 @@ const STATUS_STEPS = ['Placed', 'Accepted', 'Preparing', 'Ready', 'Picked Up', '
 export default function OrderTracking() {
     const { id } = useParams()
     const [order, setOrder] = useState(null)
+    const [tracking, setTracking] = useState(null)
     const [loading, setLoading] = useState(true)
 
-    useEffect(() => {
-        const fetchOrder = () => api.get(`/api/orders/${id}`).then(r => setOrder(r.data)).catch(() => { })
-        fetchOrder()
-        setLoading(false)
-        const interval = setInterval(fetchOrder, 15000)
-        return () => clearInterval(interval)
+    const fetchOrder = useCallback(() => {
+        api.get(`/api/orders/${id}`).then(r => setOrder(r.data)).catch(() => { })
     }, [id])
+
+    const fetchTracking = useCallback(() => {
+        api.get(`/api/orders/${id}/tracking`).then(r => setTracking(r.data)).catch(() => { })
+    }, [id])
+
+    useEffect(() => {
+        fetchOrder()
+        fetchTracking()
+        setLoading(false)
+        const orderInterval = setInterval(fetchOrder, 15000)
+        const trackingInterval = setInterval(fetchTracking, 10000)
+        return () => {
+            clearInterval(orderInterval)
+            clearInterval(trackingInterval)
+        }
+    }, [fetchOrder, fetchTracking])
 
     if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
 
@@ -32,6 +46,19 @@ export default function OrderTracking() {
     )
 
     const currentStep = STATUS_STEPS.indexOf(order.orderStatus)
+
+    // Build markers for the live map
+    const mapMarkers = []
+    const vendorLoc = tracking?.vendor?.location || order.vendorId?.location
+    if (vendorLoc?.lat && vendorLoc?.lng) {
+        mapMarkers.push({ lat: vendorLoc.lat, lng: vendorLoc.lng, label: tracking?.vendor?.shopName || order.vendorId?.shopName || 'Shop', type: 'vendor' })
+    }
+    const deliveryLoc = tracking?.deliveryLocation || tracking?.deliveryPartner?.currentLocation || order.deliveryPartnerId?.currentLocation
+    if (deliveryLoc?.lat && deliveryLoc?.lng) {
+        mapMarkers.push({ lat: deliveryLoc.lat, lng: deliveryLoc.lng, label: tracking?.deliveryPartner?.fullName || order.deliveryPartnerId?.fullName || 'Delivery', type: 'delivery' })
+    }
+
+    const isDeliveryActive = ['Picked Up', 'Out for Delivery'].includes(order.orderStatus)
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -84,19 +111,35 @@ export default function OrderTracking() {
                             <h3 className="font-bold text-gray-900 mb-3">🛵 Delivery Partner</h3>
                             <p className="text-gray-800 font-medium">{order.deliveryPartnerId.fullName}</p>
                             <p className="text-gray-500 text-sm mt-1">📞 {order.deliveryPartnerId.phone}</p>
+                            {order.deliveryPartnerId.vehicleType && (
+                                <p className="text-gray-400 text-xs mt-1">🏍️ {order.deliveryPartnerId.vehicleType}</p>
+                            )}
                         </div>
                     )}
                 </div>
 
+                {/* Live Map */}
                 <div className="card mt-4">
-                    <h3 className="font-bold text-gray-900 mb-3">🗺️ Live Tracking</h3>
-                    <div className="bg-gray-50 rounded-xl h-56 flex items-center justify-center border-2 border-dashed border-gray-200">
-                        <div className="text-center text-gray-400">
-                            <div className="text-4xl mb-2">🗺️</div>
-                            <p className="text-sm font-medium">Google Maps Live Tracking</p>
-                            <p className="text-xs mt-1">Add <code className="bg-gray-100 text-gray-600 px-1 rounded">VITE_GOOGLE_MAPS_API_KEY</code> to enable</p>
-                        </div>
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-bold text-gray-900">🗺️ Live Tracking</h3>
+                        {isDeliveryActive && deliveryLoc && (
+                            <span className="flex items-center gap-1.5 text-xs text-green-600 font-medium bg-green-50 px-2.5 py-1 rounded-full">
+                                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                                Live
+                            </span>
+                        )}
                     </div>
+                    <LiveMap markers={mapMarkers} className="h-72 rounded-xl overflow-hidden" zoom={mapMarkers.length > 1 ? 13 : 15} />
+                    {mapMarkers.length > 0 && (
+                        <div className="flex flex-wrap gap-4 mt-3 text-xs text-gray-500">
+                            {mapMarkers.map((m, i) => (
+                                <span key={i} className="flex items-center gap-1">
+                                    <span className={`w-3 h-3 rounded-full ${m.type === 'vendor' ? 'bg-amber-400' : m.type === 'delivery' ? 'bg-blue-500' : 'bg-green-500'}`} />
+                                    {m.label}
+                                </span>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <div className="card mt-4">
